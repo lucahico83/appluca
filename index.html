@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Deriv - Diagnóstico</title>
+<style>
+  body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+  #log { background: #000; padding: 10px; height: 400px; overflow-y: auto; border: 1px solid #333; }
+  .error { color: #ff5555; }
+  .success { color: #50fa7b; }
+  .warn { color: #ffb86c; }
+  .info { color: #8be9fd; }
+  button { background: #44475a; color: #f8f8f2; border: none; padding: 8px 16px; cursor: pointer; margin: 4px; }
+  button:hover { background: #6272a4; }
+  input { background: #282a36; color: #f8f8f2; border: 1px solid #44475a; padding: 8px; width: 400px; }
+</style>
+</head>
+<body>
+
+<h2>🔍 Diagnóstico de Conexión Deriv</h2>
+
+<div>
+  <label>API Token (PAT):</label><br>
+  <input id="token" type="text" placeholder="Pega tu token completo aquí"><br><br>
+  <label>App ID:</label><br>
+  <input id="appId" value="1089"><br><br>
+  <button onclick="testConnection()">🔌 Probar Conexión</button>
+  <button onclick="clearLog()">🗑️ Limpiar Log</button>
+</div>
+
+<div id="log"></div>
+
+<script>
+const log = (msg, type = 'info') => {
+  const el = document.getElementById('log');
+  const time = new Date().toLocaleTimeString();
+  el.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+};
+
+const clearLog = () => document.getElementById('log').innerHTML = '';
+
+function testConnection() {
+  const token = document.getElementById('token').value.trim();
+  const appId = document.getElementById('appId').value.trim();
+  
+  clearLog();
+  
+  // Validación básica del token
+  if (!token) {
+    log('❌ ERROR: Token vacío', 'error');
+    return;
+  }
+  
+  if (token.length < 10) {
+    log('⚠️ ADVERTENCIA: Token muy corto (' + token.length + ' caracteres). Verifica que copiaste todo.', 'warn');
+  }
+  
+  if (token.includes(' ')) {
+    log('⚠️ ADVERTENCIA: Token contiene espacios. Esto puede causar errores.', 'warn');
+  }
+  
+  log('📡 Conectando a wss://ws.derivws.com/websockets/v3?app_id=' + appId, 'info');
+  log('🔑 Token: ' + token.substring(0, 8) + '... (oculto por seguridad)', 'info');
+  
+  const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${appId}`);
+  
+  ws.onopen = () => {
+    log('✅ WebSocket abierto correctamente', 'success');
+    log('📤 Enviando comando authorize...', 'info');
+    
+    ws.send(JSON.stringify({ authorize: token }));
+  };
+  
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      
+      if (data.error) {
+        log('❌ ERROR de API: ' + data.error.message, 'error');
+        log('   Código: ' + data.error.code, 'error');
+        log('   Detalles: ' + JSON.stringify(data.error), 'error');
+      } else if (data.msg_type === 'authorize') {
+        log('✅ AUTORIZACIÓN EXITOSA', 'success');
+        log('   Login ID: ' + data.authorize.loginid, 'success');
+        log('   Nombre: ' + data.authorize.fullname, 'success');
+        log('   Moneda: ' + data.authorize.currency, 'success');
+        log('   Saldo: ' + data.authorize.balance + ' ' + data.authorize.currency, 'success');
+        log('   País: ' + data.authorize.country, 'success');
+      } else {
+        log('📨 Respuesta: ' + data.msg_type, 'info');
+      }
+    } catch (err) {
+      log('⚠️ Error parseando respuesta: ' + err.message, 'warn');
+      log('   Datos crudos: ' + e.data, 'warn');
+    }
+  };
+  
+  ws.onerror = (err) => {
+    log('❌ ERROR WebSocket (evento onerror)', 'error');
+    log('   Nota: Los navegadores no exponen detalles de errores WebSocket por seguridad.', 'warn');
+    log('   Posibles causas:', 'warn');
+    log('   - Token inválido o expirado', 'warn');
+    log('   - Problema de red/firewall', 'warn');
+    log('   - App ID incorrecto', 'warn');
+  };
+  
+  ws.onclose = (event) => {
+    log('🔌 WebSocket cerrado', 'warn');
+    log('   Código de cierre: ' + event.code, 'warn');
+    log('   Razón: ' + (event.reason || '(sin razón)'), 'warn');
+    log('   Fue limpio: ' + event.wasClean, 'warn');
+    
+    // Códigos comunes de cierre
+    if (event.code === 1006) {
+      log('   → Código 1006: Conexión anormal. Posible problema de red o token rechazado.', 'error');
+    } else if (event.code === 1008) {
+      log('   → Código 1008: Violación de política. Token probablemente inválido.', 'error');
+    } else if (event.code === 1011) {
+      log('   → Código 1011: Error interno del servidor.', 'error');
+    }
+  };
+}
+</script>
+
+</body>
+</html>
